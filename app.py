@@ -14,7 +14,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
-with open("dictionary.json") as f:
+with open("dictionary.json", encoding="utf-8") as f:
     stock_dict = json.load(f)
 
 embedded_docs = os.fsencode("embedded-docs/merged")
@@ -42,7 +42,9 @@ for i in range(5):
             spec=ServerlessSpec(cloud="aws", region="us-east-1"),
         )
 
-    pinecone_vectorstore.append(PineconeVectorStore(index=pc.Index(index_name), embedding=embedding_upstage))
+    pinecone_vectorstore.append(
+        PineconeVectorStore(index=pc.Index(index_name), embedding=embedding_upstage)
+    )
 
 app = FastAPI()
 
@@ -72,24 +74,37 @@ class ChatRequest(BaseModel):
 class MessageRequest(BaseModel):
     message: str
 
+
 async def retrieve_information(i, message, ref_list):
     pinecone_retriever = pinecone_vectorstore[i].as_retriever(
-            search_type='mmr',  # default : similarity(유사도) / mmr 알고리즘
-            search_kwargs={"k": 3}  # 쿼리와 관련된 chunk를 3개 검색하기 (default : 4)
-        )
-    qa = RetrievalQA.from_chain_type(llm=chat_upstage,
-                                    chain_type="stuff",
-                                    retriever=pinecone_retriever,
-                                    return_source_documents=True)
-    ref_list[i] = qa(f"To a given question, search the embedded vector and retrieve relevant companys' information in few sentences, split by new lines.\n(If the given information is not enough, just return the empty string.\nquestion: {message}")["result"]
+        search_type="mmr",  # default : similarity(유사도) / mmr 알고리즘
+        search_kwargs={"k": 3},  # 쿼리와 관련된 chunk를 3개 검색하기 (default : 4)
+    )
+    qa = RetrievalQA.from_chain_type(
+        llm=chat_upstage,
+        chain_type="stuff",
+        retriever=pinecone_retriever,
+        return_source_documents=True,
+    )
+    ref_list[i] = qa(
+        f"To a given question, search the embedded vector and retrieve relevant companys' information in few sentences, split by new lines.\n(If the given information is not enough, just return the empty string.\nquestion: {message}"
+    )["result"]
+
 
 @app.post("/chat")
 async def chat_endpoint(req: MessageRequest):
     info_list = [""] * 5
-    await asyncio.wait([asyncio.create_task(retrieve_information(i, req.message, info_list)) for i in range(5)])
+    await asyncio.wait(
+        [
+            asyncio.create_task(retrieve_information(i, req.message, info_list))
+            for i in range(5)
+        ]
+    )
     information_acquired = "\n".join(info_list)
 
-    result = chat_upstage.invoke(f"Considering following information, answer the question in Korean.\ninformation: {information_acquired}\nquestion: {req.message}")
+    result = chat_upstage.invoke(
+        f"Considering following information, answer the question in Korean.\ninformation: {information_acquired}\nquestion: {req.message}"
+    )
     return {"reply": result}
 
 
